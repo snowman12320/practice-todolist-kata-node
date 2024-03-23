@@ -1,7 +1,26 @@
 const http = require('http');
 const { v4: v4 } = require('uuid');
 const errorHandle = require('./errorHandle');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv').config('./.env');
 
+
+// 連接資料庫
+const DB = process.env.DATABASE.replace(
+  '<PASSWORD>',
+  process.env.DATABASE_PASSWORD
+);
+
+mongoose
+.connect(DB)
+.then(() => {
+  console.log('資料庫連線成功');
+})
+.catch((error) => {
+  console.log(error);
+});
+
+// 設定 headers
 const headers = {
   'Access-Control-Allow-Headers':
     'Content-Type, Authorization, Content-Length, X-Requested-With',
@@ -10,94 +29,140 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-const todos = [
-  { id: v4(), title: '買牛奶', completed: false },
-  { id: v4(), title: '學 Node.js', completed: false },
-  { id: v4(), title: '學前端', completed: false },
-]; 
+// 引入 Room model
+const Room = require('./models/room');
 
-const reqListen = (req, res) => {
+// 請求監聽器
+const requestListener = async (req, res) => {
   let body = '';
+
   req.on('data', (chunk) => {
     body += chunk;
   });
 
-  if (req.url === '/todos') {
-    switch (req.method) {
-      case 'GET':
-        res.writeHead(200, headers);
-        res.write(JSON.stringify(todos));
-        res.end();
-        break;
-      case 'POST':
-        req.on('end', () => {
-          try {
-            const title = JSON.parse(body).title;
-            if (title) {
-              const todo = { id: v4(), title, completed: false };
-              todos.push(todo);
-
-              res.writeHead(200, headers);
-              res.write(JSON.stringify(todo));
-              res.end();
-            } else {
-              errorHandle(res);
-            }
-          } catch (err) {
-            errorHandle(res);
-          }
-        });
-        break;
-      case 'DELETE':
-        req.on('end', () => {
-          try {
-            const id = JSON.parse(body).id;
-            const index = todos.findIndex((todo) => todo.id === id);
-            if (index !== -1) {
-              todos.splice(index, 1);
-
-              res.writeHead(200, headers);
-              res.write(JSON.stringify({ status: 'success' }));
-              res.end();
-            } else {
-              errorHandle(res);
-            }
-          } catch (err) {
-            errorHandle(res);
-          }
-        });
-        break;
-      case 'PATCH':
-        req.on('end', () => {
-          try {
-            const { id, completed } = JSON.parse(body);
-            const index = todos.findIndex((todo) => todo.id === id);
-            if (index !== -1) {
-              todos[index].completed = completed;
-
-              res.writeHead(200, headers);
-              res.write(JSON.stringify(todos[index]));
-              res.end();
-            } else {
-              errorHandle(res);
-            }
-          } catch (err) {
-            errorHandle(res);
-          }
-        });
-        break;
-    }
-  } else if(req.url === '/todosAll' && req.method === 'DELETE') {
-    todos.splice(0, todos.length);
+  if (req.url == '/rooms' && req.method == 'GET') {
+    const rooms = await Room.find();
     res.writeHead(200, headers);
-    res.write(JSON.stringify({ status: 'success' }));
+    res.write(
+      JSON.stringify({
+        status: 'success',
+        rooms,
+      })
+    );
+    res.end();
+  } else if (req.url == '/rooms' && req.method == 'POST') {
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const newRoom = await Room.create({
+          name: data.name,
+          price: data.price,
+          rating: data.rating,
+        });
+        res.writeHead(200, headers);
+        res.write(
+          JSON.stringify({
+            status: 'success',
+            rooms: newRoom,
+          })
+        );
+        res.end();
+      } catch (error) {
+        res.writeHead(400, headers);
+        res.write(
+          JSON.stringify({
+            status: 'false',
+            message: '欄位沒有正確，或沒有此 ID',
+            error: error,
+          })
+        );
+        res.end();
+      }
+    });
+  } else if (req.url == '/rooms' && req.method == 'DELETE') {
+    req.on('end', async () => {
+      try {
+        const id = JSON.parse(body).id;
+        const result = await Room.findByIdAndDelete(id);
+        if (!result) {
+          throw new Error();
+        }
+
+        res.writeHead(200, headers);
+        res.write(
+          JSON.stringify({
+            status: 'success',
+          })
+        );
+        res.end();
+      } catch (error) {
+        res.writeHead(400, headers);
+        res.write(
+          JSON.stringify({
+            status: 'false',
+            message: '沒有此 ID',
+            error: error,
+          })
+        );
+        res.end();
+      }
+    });
+  } else if (req.url == '/roomsAll' && req.method == 'DELETE') {
+    // await Room.deleteMany();
+    res.writeHead(200, headers);
+    res.write(
+      JSON.stringify({
+        status: 'success',
+      })
+    );
+    res.end();
+  } else if (req.url == '/rooms' && req.method == 'PATCH') {
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const newRoom = await Room.findByIdAndUpdate(data.id, {
+          name: data.name,
+          price: data.price,
+          rating: data.rating,
+        });
+        res.writeHead(200, headers);
+        res.write(
+          JSON.stringify({
+            status: 'success',
+            rooms: newRoom,
+          })
+        );
+        res.end();
+      } catch (error) {
+        res.writeHead(400, headers);
+        res.write(
+          JSON.stringify({
+            status: 'false',
+            message: '欄位沒有正確，或沒有此 ID',
+            error: error,
+          })
+        );
+        res.end();
+      }
+    });
+  } else if (req.method == 'OPTIONS') {
+    res.writeHead(200, headers);
     res.end();
   } else {
     res.writeHead(404, headers);
-    res.write(JSON.stringify({ status: 'path not found' }));
+    res.write(
+      JSON.stringify({
+        status: 'false',
+        message: '無此網站路由',
+      })
+    );
     res.end();
   }
 };
 
-const server = http.createServer(reqListen);
-server.listen(3005);
+// 建立伺服器
+const server = http.createServer(requestListener);
+
+server.listen(process.env.PORT, () => {
+  console.log(`Server is running on http://localhost:${process.env.PORT}`);
+});
